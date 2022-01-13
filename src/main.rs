@@ -20,18 +20,15 @@ fn main() {
 fn draw_rooms(height: u16, sep: u16, rooms: &[String]) {
     // draw separator bar
     for y in 1..height {
-        println!("{}|", cursor::Goto(sep, y));
+        print!("{}|", cursor::Goto(sep, y));
     }
-    let mut moving_pos = (1, 1);
+    let mut y = 1;
     for room in rooms {
         // draw room name
-        println!("{}|{} ", cursor::Goto(moving_pos.0, moving_pos.1), room);
+        print!("{}|{}", cursor::Goto(1, y), room);
         // go down and draw a separator line before the next room
-        moving_pos.1 += 1;
-        for x in 2..sep {
-            println!("{}-", cursor::Goto(x, moving_pos.1));
-        }
-        println!("{}|", cursor::Goto(moving_pos.0, moving_pos.1));
-        moving_pos.1 += 1;
+        y += 1;
+        print!("{}|{}", cursor::Goto(1, y), "-".repeat((sep - 2) as usize));
+        y += 1;
     }
 }
