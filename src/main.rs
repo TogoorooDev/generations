@@ -10,7 +10,7 @@ fn main() {
     let mut _stdout = stdout().into_raw_mode().unwrap();
     let mut rooms = vec!["Pretty People".to_string(), "Crypto Chat".to_string(), "Free Software Extremists".to_string(), "General".to_string()];
 
-    let (mut width, mut height) = termion::terminal_size().unwrap();
+    let (mut width, mut gheight) = termion::terminal_size().unwrap();
     prep(width, height, &rooms);
     
     loop{
