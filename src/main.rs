@@ -1,4 +1,5 @@
 use termion::{cursor, clear, input::TermRead, raw::IntoRawMode};
+use termion::event::Key;
 use std::io::{stdin, stdout, Write};
 
 fn clear() { println!("{}{}", clear::All, cursor::Goto(1, 1)); }
@@ -9,7 +10,31 @@ fn main() {
     let mut _stdout = stdout().into_raw_mode().unwrap();
     let mut rooms = vec!["Pretty People".to_string(), "Crypto Chat".to_string(), "Free Software Extremists".to_string(), "General".to_string()];
 
-    let (width, height) = termion::terminal_size().unwrap();
+    let (mut width, mut height) = termion::terminal_size().unwrap();
+    prep(width, height, &rooms);
+    
+    loop{
+
+	let (nwidth, nheight) = termion::terminal_size().unwrap();
+	if (nwidth, nheight) != (width, height){
+	    width = nwidth;
+	    height = nheight;
+	    prep(width, height, &rooms);
+	}
+	
+	for event in stdin().keys() {
+	    
+	    match event.unwrap(){
+		Key::Esc => {
+		    quit_menu();
+		},
+		_ => {}
+	    }	    
+	}
+    }
+}
+
+fn prep(width: u16, height: u16, rooms: &[String]){
     let sep: u16 = width / 3;
     clear();
     draw_rooms(height, sep, &rooms);
@@ -17,9 +42,12 @@ fn main() {
     draw_messages(height, width, sep, vec!["hi".into(), "hi2".into()]);
     print!("{}", cursor::Goto(1, height));
     stdout().flush().unwrap();
-    for event in stdin().events() {
-        break
-    }
+}
+
+fn quit_menu(){
+    clear();
+    std::process::exit(0);
+    //let (width, height) = termion::terminal_size().unwrap();
 }
 
 fn draw_rooms(height: u16, sep: u16, rooms: &[String]) {
