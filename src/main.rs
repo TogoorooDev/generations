@@ -27,7 +27,16 @@ fn main() {
 			Key::Esc => {
 				quit_menu();
 			},
-			_ => {}
+			Key::Char(c) => {
+				if c == '\n' {
+					print!("{}{}", clear::CurrentLine, cursor::Goto(1, height));
+					stdout().flush().unwrap();
+				} else {
+					print!("{}", c);
+					stdout().flush().unwrap();
+				}
+			},
+			_ => {},
 			}
 		}
 	}
