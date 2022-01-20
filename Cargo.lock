@@ -69,7 +69,7 @@ dependencies = [
 [[package]]
 name = "libsufec"
 version = "0.1.0"
-source = "git+https://git.sr.ht/~yujiri/libsufec#eb61b61a810b8d7da37456f0d57ced5f50a0cee6"
+source = "git+https://git.sr.ht/~yujiri/libsufec#42be507259818fb198ee4206472c77bf3df4e742"
 dependencies = [
  "base64",
  "serde",
