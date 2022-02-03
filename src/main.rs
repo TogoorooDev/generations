@@ -30,12 +30,6 @@ struct Room {
 	history: Vec<HistoryEntry>,
 	unseen: u16,
 }
-impl PartialEq for Room {
-	fn eq(&self, other: &Self) -> bool {
-		self.members == other.members
-	}
-}
-impl Eq for Room {}
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct HistoryEntry {
 	sender: SufecAddr,
