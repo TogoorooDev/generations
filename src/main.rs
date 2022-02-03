@@ -50,6 +50,7 @@ fn goto(x: u16, y: u16) { println!("{}", cursor::Goto(x, y)); }
 
 fn main() -> Result<()> {
 	sodiumoxide::init().expect("sodiumoxie::init failed");
+	// Initialize account and state.
 	let account = Arc::new(RwLock::new(load_account()?));
 	let (width, height) = termion::terminal_size().unwrap();
 	let state = Arc::new(RwLock::new(State{
@@ -57,6 +58,7 @@ fn main() -> Result<()> {
 			msg_buf: String::new(),
 			width, height,
 	}));
+	// Start listener.
 	let accountclone = Arc::clone(&account);
 	let stateclone = Arc::clone(&state);
 	let receive_msg = move |from, timestamp, msg| {
@@ -94,13 +96,31 @@ fn main() -> Result<()> {
 				quit_menu();
 			},
 			Key::Char(c) => {
-				let mut state = state.write().unwrap();
 				if c == '\n' {
+					// Clear the line.
 					print!("{}{}", clear::CurrentLine, cursor::Goto(1, height));
-					stdout().flush().unwrap();
-					send_message(&mut account.write().unwrap(), &mut state);
+					// Make the message content.
+					let mut state = state.write().unwrap();
+					let msg = MessageContent::Text(state.msg_buf.clone());
+					state.msg_buf.clear();
+					// Find the room.
+					let mut account = account.write().unwrap();
+					let account: &mut Account = &mut account;
+					let room = account.rooms.iter_mut().find(|r| r.id == state.room_id).unwrap();
+					// Add it to the history.
+					let history_entry = HistoryEntry{
+						sender: account.account.addr.clone(),
+						timestamp: UNIX_EPOCH.elapsed().unwrap().as_micros() as u64,
+						msg: msg.clone(),
+					};
+					room.history.push(history_entry);
+					// Update screen.
+					draw_messages(&state, &room.history);
+					// Send the message.
+					send_message(account.account.clone(), room.members.clone(), msg);
 				} else {
 					print!("{}", c);
+					let mut state = state.write().unwrap();
 					state.msg_buf.push(c);
 				}
 				stdout().flush().unwrap();
@@ -185,26 +205,17 @@ fn write_ron<T: Serialize>(t: &T, path: &str) -> Result<()> {
 	Ok(())
 }
 
-fn send_message(account: &mut Account, state: &mut State) {
-	let content = MessageContent::Text(state.msg_buf.clone());
-	state.msg_buf.clear();
-	// Find the room.
-	let room = account.rooms.iter_mut().find(|r| r.id == state.room_id).unwrap();
-	// Add it to the history.
-	let timestamp = UNIX_EPOCH.elapsed().unwrap().as_micros() as u64;
-	let history_entry = HistoryEntry{
-		sender: account.account.addr.clone(),
-		timestamp,
-		msg: content.clone(),
-	};
-	room.history.push(history_entry);
-	draw_messages(state, &room.history);
-	for recipient in room.members.iter() {
-		let other_recipients = room.members.iter().filter(|r| *r != recipient).map(|r| r.clone()).collect();
+fn send_message(account: SufecAccount, recipients: Vec<SufecAddr>, content: MessageContent) {
+	for recipient in recipients.iter() {
+		let recipient = recipient.clone();
+		let other_recipients = recipients.iter().filter(|r| *r != &recipient).map(|r| r.clone()).collect();
 		let message = Message{other_recipients, content: content.clone()};
-		if let Err(e) = libsufec::send(&account.account, recipient, message) {
-			eprintln!("couldn't send to {:?}: {}", recipient, e);
-		}
+		let account = account.clone();
+		std::thread::spawn(move || {
+			if let Err(e) = libsufec::send(&account, &recipient, message) {
+				eprintln!("couldn't send to {:?}: {}", recipient, e);
+			}
+		});
 	}
 }
 
