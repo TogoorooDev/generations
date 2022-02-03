@@ -162,7 +162,7 @@ fn draw_messages(state: &State, messages: &[HistoryEntry]) {
 		for i in 0..lines {
 			let end = std::cmp::min(index+message_width as usize, chars.len());
 			let slice = chars[index..end].iter().collect::<String>();
-			print!("{}{}", cursor::Goto(sep+1, y+i), slice);
+			print!("{}{}{}", cursor::Goto(sep+1, y+i), clear::UntilNewline, slice);
 			index += message_width as usize;
 		}
 		y -= 1;
@@ -232,7 +232,7 @@ fn message_callback(account: &mut Account, state: &State, from: SufecAddr, times
 				unseen: 1,
 			};
 			account.rooms.push(new_room);
-			// draw_rooms();
+			// draw_rooms(height, sep, &account.rooms);
 		}
 	}
 	write_ron(&account.clone(), "account.ron").expect("couldn't save account");
