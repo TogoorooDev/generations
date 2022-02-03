@@ -125,6 +125,12 @@ fn main() -> Result<()> {
 				}
 				stdout().flush().unwrap();
 			},
+			Key::Backspace => {
+				let mut state = state.write().unwrap();
+				state.msg_buf.pop();
+				print!("{} {}", cursor::Left(1), cursor::Left(1));
+				stdout().flush().unwrap();
+			},
 			_ => {},
 			}
 		}
