@@ -189,7 +189,7 @@ fn send_message(account: &mut Account, state: &mut State) {
 	// Find the room.
 	let room = account.rooms.iter_mut().find(|r| r.id == state.room_id).unwrap();
 	// Add it to the history.
-	let timestamp = UNIX_EPOCH.elapsed().unwrap().as_millis() as u64;
+	let timestamp = UNIX_EPOCH.elapsed().unwrap().as_micros() as u64;
 	let history_entry = HistoryEntry{
 		sender: account.account.addr.clone(),
 		timestamp,
