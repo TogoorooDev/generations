@@ -69,7 +69,15 @@ fn main() -> Result<()> {
 	std::thread::spawn(|| sufec_backend(accountclone, receive_msg));
 
 	let mut _stdout = stdout().into_raw_mode().unwrap();
-	prep(width, height, &account.read().unwrap().rooms);
+
+	// Set up the screen.
+	{
+		let account = account.read().unwrap();
+		let state = state.read().unwrap();
+		prep(width, height, &account.rooms);
+		let room = account.rooms.iter().find(|r| r.id == state.room_id).unwrap();
+		draw_messages(&state, &room.history);
+	}
 	
 	loop {
 		let (nwidth, nheight) = termion::terminal_size().unwrap();
