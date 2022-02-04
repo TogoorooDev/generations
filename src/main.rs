@@ -79,7 +79,7 @@ fn main() -> Result<()> {
 		prep(width, height, &account.rooms);
 		if let Some(room_id) = state.room_id {
 			let room = account.rooms.iter().find(|r| r.id == room_id).unwrap();
-			draw_messages(&state, &room.history);
+			draw_messages(&state, &room.history, &account.contacts);
 		}
 	}
 	
@@ -122,7 +122,7 @@ fn main() -> Result<()> {
 					};
 					room.history.push(history_entry);
 					// Update screen.
-					draw_messages(&state, &room.history);
+					draw_messages(&state, &room.history, &account.contacts);
 					// Send the message.
 					send_message(account.account.clone(), room.members.clone(), msg);
 				} else {
@@ -178,7 +178,7 @@ fn draw_bottom(height: u16, width: u16) {
 	print!("{}{}", cursor::Goto(1, height-1), "-".repeat(width as usize));
 }
 
-fn draw_messages(state: &State, messages: &[HistoryEntry]) {
+fn draw_messages(state: &State, messages: &[HistoryEntry], contacts: &[Contact]) {
 	let sep = state.width / 3;
 	let message_width = state.width - sep;
 	// we don't have automatic GUI-like scrolling, therefore we start from the end
@@ -188,6 +188,11 @@ fn draw_messages(state: &State, messages: &[HistoryEntry]) {
 			MessageContent::Text(s) => s,
 			_ => unimplemented!(),
 		};
+		let display_name = match contacts.iter().find(|c| c.addr.id == message.sender.id) {
+			Some(c) => c.name.clone(),
+			None => String::from(message.sender.clone()),
+		};
+		let text = format!("{}: {}", display_name, text);
 		let chars: Vec<char> = text.chars().collect();
 		let lines = chars.len() as u16 / message_width + 1;
 		// Go to the beginning of where the message will span.
@@ -247,7 +252,7 @@ fn message_callback(account: &mut Account, state: &State, from: SufecAddr, times
 	match room {
 		Some(r) => {
 			r.history.push(history_entry);
-			draw_messages(state, &r.history);
+			draw_messages(state, &r.history, &account.contacts);
 		},
 		None => {
 			let new_room = Room{
