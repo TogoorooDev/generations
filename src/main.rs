@@ -1,5 +1,5 @@
 use anyhow::{Context,Result};
-use termion::{cursor, clear, input::TermRead, raw::IntoRawMode};
+use termion::{cursor, clear, style, input::TermRead, raw::IntoRawMode};
 use termion::event::Key;
 use libsufec::{Account as SufecAccount, Message, MessageContent, SufecAddr};
 use serde::{Deserialize, Serialize};
@@ -76,7 +76,7 @@ fn main() -> Result<()> {
 	{
 		let account = account.read().unwrap();
 		let state = state.read().unwrap();
-		prep(width, height, &account.rooms);
+		prep(&state, &account.rooms);
 		if let Some(room_id) = state.room_id {
 			let room = account.rooms.iter().find(|r| r.id == room_id).unwrap();
 			draw_messages(&state, &room.history, &account.contacts);
@@ -89,7 +89,7 @@ fn main() -> Result<()> {
 			let mut state = state.write().unwrap();
 			state.width = nwidth;
 			state.height = nheight;
-			prep(nwidth, nheight, &account.read().unwrap().rooms);
+			prep(&state, &account.read().unwrap().rooms);
 		}
 
 		for event in stdin().keys() {
@@ -144,12 +144,12 @@ fn main() -> Result<()> {
 	}
 }
 
-fn prep(width: u16, height: u16, rooms: &[Room]){
-	let sep: u16 = width / 3;
+fn prep(state: &State, rooms: &[Room]){
+	let sep: u16 = state.width / 3;
 	clear();
-	draw_rooms(height, sep, rooms);
-	draw_bottom(height, width);
-	print!("{}", cursor::Goto(1, height));
+	draw_rooms(state.height, sep, rooms, state.room_id);
+	draw_bottom(state.height, state.width);
+	print!("{}", cursor::Goto(1, state.height));
 	stdout().flush().unwrap();
 }
 
@@ -158,15 +158,23 @@ fn quit_menu(){
 	std::process::exit(0);
 }
 
-fn draw_rooms(height: u16, sep: u16, rooms: &[Room]) {
+fn draw_rooms(height: u16, sep: u16, rooms: &[Room], room_id: Option<[u8; 2]>) {
 	// draw separator bar
 	for y in 1..height-1 {
 		print!("{}|", cursor::Goto(sep, y));
 	}
 	let mut y = 1;
 	for room in rooms {
-		// draw room name
-		print!("{}|{}", cursor::Goto(1, y), room.name);
+		// go to position to start room name
+		print!("{}|", cursor::Goto(1, y));
+		// If it's the current room, highlight it.
+		if Some(room.id) == room_id {
+			print!("{}", style::Invert)
+		}
+		print!("{}", room.name);
+		if Some(room.id) == room_id {
+			print!("{}{}", " ".repeat(sep as usize - 2 - room.name.len()), style::NoInvert)
+		}
 		// go down and draw a separator line before the next room
 		y += 1;
 		print!("{}|{}", cursor::Goto(1, y), "-".repeat((sep - 2) as usize));
