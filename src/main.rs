@@ -1,5 +1,5 @@
 use anyhow::{Context,Result};
-use termion::{cursor, clear, input::TermRead, raw::IntoRawMode};
+use termion::{cursor, clear, style, input::TermRead, raw::IntoRawMode};
 use termion::event::Key;
 use libsufec::{Account as SufecAccount, Message, MessageContent, SufecAddr};
 use serde::{Deserialize, Serialize};
@@ -30,12 +30,6 @@ struct Room {
 	history: Vec<HistoryEntry>,
 	unseen: u16,
 }
-impl PartialEq for Room {
-	fn eq(&self, other: &Self) -> bool {
-		self.members == other.members
-	}
-}
-impl Eq for Room {}
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct HistoryEntry {
 	sender: SufecAddr,
@@ -44,7 +38,7 @@ struct HistoryEntry {
 }
 
 struct State {
-	room_id: [u8; 2],
+	room_id: Option<[u8; 2]>,
 	msg_buf: String,
 	width: u16,
 	height: u16,
@@ -56,13 +50,15 @@ fn goto(x: u16, y: u16) { println!("{}", cursor::Goto(x, y)); }
 
 fn main() -> Result<()> {
 	sodiumoxide::init().expect("sodiumoxie::init failed");
+	// Initialize account and state.
 	let account = Arc::new(RwLock::new(load_account()?));
 	let (width, height) = termion::terminal_size().unwrap();
 	let state = Arc::new(RwLock::new(State{
-			room_id: account.read().unwrap().rooms[0].id,
+			room_id: account.read().unwrap().rooms.get(0).map(|r| r.id),
 			msg_buf: String::new(),
 			width, height,
 	}));
+	// Start listener.
 	let accountclone = Arc::clone(&account);
 	let stateclone = Arc::clone(&state);
 	let receive_msg = move |from, timestamp, msg| {
@@ -75,7 +71,17 @@ fn main() -> Result<()> {
 	std::thread::spawn(|| sufec_backend(accountclone, receive_msg));
 
 	let mut _stdout = stdout().into_raw_mode().unwrap();
-	prep(width, height, &account.read().unwrap().rooms);
+
+	// Set up the screen.
+	{
+		let account = account.read().unwrap();
+		let state = state.read().unwrap();
+		prep(&state, &account.rooms);
+		if let Some(room_id) = state.room_id {
+			let room = account.rooms.iter().find(|r| r.id == room_id).unwrap();
+			draw_messages(&state, &room.history, &account.contacts);
+		}
+	}
 	
 	loop {
 		let (nwidth, nheight) = termion::terminal_size().unwrap();
@@ -83,7 +89,7 @@ fn main() -> Result<()> {
 			let mut state = state.write().unwrap();
 			state.width = nwidth;
 			state.height = nheight;
-			prep(nwidth, nheight, &account.read().unwrap().rooms);
+			prep(&state, &account.read().unwrap().rooms);
 		}
 
 		for event in stdin().keys() {
@@ -92,15 +98,44 @@ fn main() -> Result<()> {
 				quit_menu();
 			},
 			Key::Char(c) => {
-				let mut state = state.write().unwrap();
 				if c == '\n' {
+					let mut state = state.write().unwrap();
+					// They can't send a message if they aren't in a room.
+					let room_id = match state.room_id {
+						Some(room_id) => room_id,
+						None => continue,
+					};
+					// Clear the line.
 					print!("{}{}", clear::CurrentLine, cursor::Goto(1, height));
-					stdout().flush().unwrap();
-					send_message(&mut account.write().unwrap(), &mut state);
+					// Make the message content.
+					let msg = MessageContent::Text(state.msg_buf.clone());
+					state.msg_buf.clear();
+					// Find the room.
+					let mut account = account.write().unwrap();
+					let account: &mut Account = &mut account;
+					let room = account.rooms.iter_mut().find(|r| r.id == room_id).unwrap();
+					// Add it to the history.
+					let history_entry = HistoryEntry{
+						sender: account.account.addr.clone(),
+						timestamp: UNIX_EPOCH.elapsed().unwrap().as_micros() as u64,
+						msg: msg.clone(),
+					};
+					room.history.push(history_entry);
+					// Update screen.
+					draw_messages(&state, &room.history, &account.contacts);
+					// Send the message.
+					send_message(account.account.clone(), room.members.clone(), msg);
 				} else {
 					print!("{}", c);
+					let mut state = state.write().unwrap();
 					state.msg_buf.push(c);
 				}
+				stdout().flush().unwrap();
+			},
+			Key::Backspace => {
+				let mut state = state.write().unwrap();
+				state.msg_buf.pop();
+				print!("{} {}", cursor::Left(1), cursor::Left(1));
 				stdout().flush().unwrap();
 			},
 			_ => {},
@@ -109,12 +144,12 @@ fn main() -> Result<()> {
 	}
 }
 
-fn prep(width: u16, height: u16, rooms: &[Room]){
-	let sep: u16 = width / 3;
+fn prep(state: &State, rooms: &[Room]){
+	let sep: u16 = state.width / 3;
 	clear();
-	draw_rooms(height, sep, rooms);
-	draw_bottom(height, width);
-	print!("{}", cursor::Goto(1, height));
+	draw_rooms(state.height, sep, rooms, state.room_id);
+	draw_bottom(state.height, state.width);
+	print!("{}", cursor::Goto(1, state.height));
 	stdout().flush().unwrap();
 }
 
@@ -123,15 +158,23 @@ fn quit_menu(){
 	std::process::exit(0);
 }
 
-fn draw_rooms(height: u16, sep: u16, rooms: &[Room]) {
+fn draw_rooms(height: u16, sep: u16, rooms: &[Room], room_id: Option<[u8; 2]>) {
 	// draw separator bar
 	for y in 1..height-1 {
 		print!("{}|", cursor::Goto(sep, y));
 	}
 	let mut y = 1;
 	for room in rooms {
-		// draw room name
-		print!("{}|{}", cursor::Goto(1, y), room.name);
+		// go to position to start room name
+		print!("{}|", cursor::Goto(1, y));
+		// If it's the current room, highlight it.
+		if Some(room.id) == room_id {
+			print!("{}", style::Invert)
+		}
+		print!("{}", room.name);
+		if Some(room.id) == room_id {
+			print!("{}{}", " ".repeat(sep as usize - 2 - room.name.len()), style::NoInvert)
+		}
 		// go down and draw a separator line before the next room
 		y += 1;
 		print!("{}|{}", cursor::Goto(1, y), "-".repeat((sep - 2) as usize));
@@ -143,7 +186,7 @@ fn draw_bottom(height: u16, width: u16) {
 	print!("{}{}", cursor::Goto(1, height-1), "-".repeat(width as usize));
 }
 
-fn draw_messages(state: &State, messages: &[HistoryEntry]) {
+fn draw_messages(state: &State, messages: &[HistoryEntry], contacts: &[Contact]) {
 	let sep = state.width / 3;
 	let message_width = state.width - sep;
 	// we don't have automatic GUI-like scrolling, therefore we start from the end
@@ -153,6 +196,11 @@ fn draw_messages(state: &State, messages: &[HistoryEntry]) {
 			MessageContent::Text(s) => s,
 			_ => unimplemented!(),
 		};
+		let display_name = match contacts.iter().find(|c| c.addr.id == message.sender.id) {
+			Some(c) => c.name.clone(),
+			None => String::from(message.sender.clone()),
+		};
+		let text = format!("{}: {}", display_name, text);
 		let chars: Vec<char> = text.chars().collect();
 		let lines = chars.len() as u16 / message_width + 1;
 		// Go to the beginning of where the message will span.
@@ -183,26 +231,17 @@ fn write_ron<T: Serialize>(t: &T, path: &str) -> Result<()> {
 	Ok(())
 }
 
-fn send_message(account: &mut Account, state: &mut State) {
-	let content = MessageContent::Text(state.msg_buf.clone());
-	state.msg_buf.clear();
-	// Find the room.
-	let room = account.rooms.iter_mut().find(|r| r.id == state.room_id).unwrap();
-	// Add it to the history.
-	let timestamp = UNIX_EPOCH.elapsed().unwrap().as_micros() as u64;
-	let history_entry = HistoryEntry{
-		sender: account.account.addr.clone(),
-		timestamp,
-		msg: content.clone(),
-	};
-	room.history.push(history_entry);
-	draw_messages(state, &room.history);
-	for recipient in room.members.iter() {
-		let other_recipients = room.members.iter().filter(|r| *r != recipient).map(|r| r.clone()).collect();
+fn send_message(account: SufecAccount, recipients: Vec<SufecAddr>, content: MessageContent) {
+	for recipient in recipients.iter() {
+		let recipient = recipient.clone();
+		let other_recipients = recipients.iter().filter(|r| *r != &recipient).map(|r| r.clone()).collect();
 		let message = Message{other_recipients, content: content.clone()};
-		if let Err(e) = libsufec::send(&account.account, recipient, message) {
-			eprintln!("couldn't send to {:?}: {}", recipient, e);
-		}
+		let account = account.clone();
+		std::thread::spawn(move || {
+			if let Err(e) = libsufec::send(&account, &recipient, message) {
+				eprintln!("couldn't send to {:?}: {}", recipient, e);
+			}
+		});
 	}
 }
 
@@ -221,7 +260,7 @@ fn message_callback(account: &mut Account, state: &State, from: SufecAddr, times
 	match room {
 		Some(r) => {
 			r.history.push(history_entry);
-			draw_messages(state, &r.history);
+			draw_messages(state, &r.history, &account.contacts);
 		},
 		None => {
 			let new_room = Room{
