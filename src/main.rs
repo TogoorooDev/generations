@@ -38,7 +38,7 @@ struct HistoryEntry {
 }
 
 struct State {
-	room_id: [u8; 2],
+	room_id: Option<[u8; 2]>,
 	msg_buf: String,
 	width: u16,
 	height: u16,
@@ -54,7 +54,7 @@ fn main() -> Result<()> {
 	let account = Arc::new(RwLock::new(load_account()?));
 	let (width, height) = termion::terminal_size().unwrap();
 	let state = Arc::new(RwLock::new(State{
-			room_id: account.read().unwrap().rooms[0].id,
+			room_id: account.read().unwrap().rooms.get(0).map(|r| r.id),
 			msg_buf: String::new(),
 			width, height,
 	}));
@@ -77,8 +77,10 @@ fn main() -> Result<()> {
 		let account = account.read().unwrap();
 		let state = state.read().unwrap();
 		prep(width, height, &account.rooms);
-		let room = account.rooms.iter().find(|r| r.id == state.room_id).unwrap();
-		draw_messages(&state, &room.history);
+		if let Some(room_id) = state.room_id {
+			let room = account.rooms.iter().find(|r| r.id == room_id).unwrap();
+			draw_messages(&state, &room.history);
+		}
 	}
 	
 	loop {
@@ -97,16 +99,21 @@ fn main() -> Result<()> {
 			},
 			Key::Char(c) => {
 				if c == '\n' {
+					let mut state = state.write().unwrap();
+					// They can't send a message if they aren't in a room.
+					let room_id = match state.room_id {
+						Some(room_id) => room_id,
+						None => continue,
+					};
 					// Clear the line.
 					print!("{}{}", clear::CurrentLine, cursor::Goto(1, height));
 					// Make the message content.
-					let mut state = state.write().unwrap();
 					let msg = MessageContent::Text(state.msg_buf.clone());
 					state.msg_buf.clear();
 					// Find the room.
 					let mut account = account.write().unwrap();
 					let account: &mut Account = &mut account;
-					let room = account.rooms.iter_mut().find(|r| r.id == state.room_id).unwrap();
+					let room = account.rooms.iter_mut().find(|r| r.id == room_id).unwrap();
 					// Add it to the history.
 					let history_entry = HistoryEntry{
 						sender: account.account.addr.clone(),
