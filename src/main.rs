@@ -4,6 +4,7 @@ use termion::event::Key;
 use libsufec::{Account as SufecAccount, Message, MessageContent, SufecAddr};
 use serde::{Deserialize, Serialize};
 use sodiumoxide::crypto::box_::{self, PublicKey, SecretKey};
+use sodiumoxide::randombytes::randombytes;
 use std::io::{stdin, stdout, Write};
 use std::fs::File;
 use std::sync::{mpsc, Arc, RwLock};
@@ -65,7 +66,7 @@ fn main() -> Result<()> {
 		let mut account = accountclone.write().unwrap();
 		let state = stateclone.read().unwrap();
 		message_callback(&mut account, &state, from, timestamp, msg);
-		write_ron(&account.clone(), "account.ron").unwrap();
+		save_account(&account).unwrap();
 	};
 	let accountclone = Arc::clone(&account);
 	std::thread::spawn(|| sufec_backend(accountclone, receive_msg));
@@ -138,6 +139,22 @@ fn main() -> Result<()> {
 				print!("{} {}", cursor::Left(1), cursor::Left(1));
 				stdout().flush().unwrap();
 			},
+			Key::Ctrl('n') => {
+				let mut account = account.write().unwrap();
+				let mut state = state.write().unwrap();
+				let new_room = Room{
+					id: randombytes(2).try_into().unwrap(),
+					name: "New room".to_string(),
+					members: vec![],
+					history: vec![],
+					unseen: 0,
+				};
+				state.room_id = Some(new_room.id);
+				account.rooms.push(new_room);
+				draw_rooms(&state, &account.rooms);
+				stdout().flush().unwrap();
+				save_account(&account).unwrap();
+			},
 			_ => {},
 			}
 		}
@@ -145,11 +162,9 @@ fn main() -> Result<()> {
 }
 
 fn prep(state: &State, rooms: &[Room]){
-	let sep: u16 = state.width / 3;
 	clear();
-	draw_rooms(state.height, sep, rooms, state.room_id);
 	draw_bottom(state.height, state.width);
-	print!("{}", cursor::Goto(1, state.height));
+	draw_rooms(state, rooms);
 	stdout().flush().unwrap();
 }
 
@@ -158,9 +173,10 @@ fn quit_menu(){
 	std::process::exit(0);
 }
 
-fn draw_rooms(height: u16, sep: u16, rooms: &[Room], room_id: Option<[u8; 2]>) {
+fn draw_rooms(state: &State, rooms: &[Room]) {
+	let sep = state.width / 3;
 	// draw separator bar
-	for y in 1..height-1 {
+	for y in 1..state.height-1 {
 		print!("{}|", cursor::Goto(sep, y));
 	}
 	let mut y = 1;
@@ -168,18 +184,16 @@ fn draw_rooms(height: u16, sep: u16, rooms: &[Room], room_id: Option<[u8; 2]>) {
 		// go to position to start room name
 		print!("{}|", cursor::Goto(1, y));
 		// If it's the current room, highlight it.
-		if Some(room.id) == room_id {
+		if Some(room.id) == state.room_id {
 			print!("{}", style::Invert)
 		}
-		print!("{}", room.name);
-		if Some(room.id) == room_id {
-			print!("{}{}", " ".repeat(sep as usize - 2 - room.name.len()), style::NoInvert)
-		}
+		print!("{}{}{}", room.name, " ".repeat(sep as usize - 2 - room.name.len()), style::NoInvert);
 		// go down and draw a separator line before the next room
 		y += 1;
 		print!("{}|{}", cursor::Goto(1, y), "-".repeat((sep - 2) as usize));
 		y += 1;
 	}
+	print!("{}", cursor::Goto(1+state.msg_buf.len() as u16, state.height));
 }
 
 fn draw_bottom(height: u16, width: u16) {
@@ -189,6 +203,10 @@ fn draw_bottom(height: u16, width: u16) {
 fn draw_messages(state: &State, messages: &[HistoryEntry], contacts: &[Contact]) {
 	let sep = state.width / 3;
 	let message_width = state.width - sep;
+	// Clear any previous messages.
+	for y in 1..state.height - 1 {
+		print!("{}{}", cursor::Goto(sep+1, y), " ".repeat((state.width - sep) as usize));
+	}
 	// we don't have automatic GUI-like scrolling, therefore we start from the end
 	let mut y = state.height - 2;
 	for message in messages.iter().rev() {
@@ -210,7 +228,7 @@ fn draw_messages(state: &State, messages: &[HistoryEntry], contacts: &[Contact])
 		for i in 0..lines {
 			let end = std::cmp::min(index+message_width as usize, chars.len());
 			let slice = chars[index..end].iter().collect::<String>();
-			print!("{}{}{}", cursor::Goto(sep+1, y+i), clear::UntilNewline, slice);
+			print!("{}{}", cursor::Goto(sep+1, y+i), slice);
 			index += message_width as usize;
 		}
 		y -= 1;
@@ -224,7 +242,10 @@ fn load_account() -> Result<Account> {
 	let f = File::open("account.ron").context("couldn't open account.ron")?;
 	ron::de::from_reader(f).context("couldn't parse account.ron")
 }
+fn save_account(account: &Account) -> Result<()> {
+	write_ron(account, "account.ron").context("couldn't save account")
 
+}
 fn write_ron<T: Serialize>(t: &T, path: &str) -> Result<()> {
 	let f = File::create(path).context("couldn't create file")?;
 	ron::ser::to_writer_pretty(f, t, ron::ser::PrettyConfig::default())?;
@@ -264,17 +285,17 @@ fn message_callback(account: &mut Account, state: &State, from: SufecAddr, times
 		},
 		None => {
 			let new_room = Room{
-				id: sodiumoxide::randombytes::randombytes(2).try_into().unwrap(),
+				id: randombytes(2).try_into().unwrap(),
 				name: "New room".into(),
 				members: vec![from],
 				history: vec![history_entry],
 				unseen: 1,
 			};
 			account.rooms.push(new_room);
-			// draw_rooms(height, sep, &account.rooms);
+			draw_rooms(state, &account.rooms);
 		}
 	}
-	write_ron(&account.clone(), "account.ron").expect("couldn't save account");
+	save_account(account).expect("couldn't save account");
 }
 
 fn sufec_backend<T: FnMut(SufecAddr, u64, Message)>(account: Arc<RwLock<Account>>, receive_msg: T) {
@@ -290,7 +311,7 @@ fn sufec_backend<T: FnMut(SufecAddr, u64, Message)>(account: Arc<RwLock<Account>
 		let mut account = account.write().unwrap();
 		account.eph_pub = new_eph_pub;
 		account.eph_sec = new_eph_sec_clone;
-		write_ron(&account.clone(), "account.ron").expect("couldn't save account");
+		save_account(&account).unwrap();
 	};
 	// We don't use this but have to pass it in
 	let (_, shutdown_rx) = mpsc::channel();
