@@ -157,6 +157,20 @@ fn main() -> Result<()> {
 				stdout().flush().unwrap();
 				save_account(&account).unwrap();
 			},
+			Key::Alt(c) => {
+				let account = account.read().unwrap();
+				let mut state = state.write().unwrap();
+				if c >= '0' && c <= '9' {
+					let n = if c == '0' { 9 } else { c as usize - '0' as usize - 1 };
+					let new_room = match account.rooms.get(n) {
+						Some(r) => r,
+						None => continue,
+					};
+					state.room_id = Some(new_room.id);
+					draw_rooms(&state, &account.rooms);
+					draw_messages(&state, &new_room.history, &account.contacts);
+				}
+			}
 			_ => {},
 			}
 		}
