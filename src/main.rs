@@ -126,6 +126,8 @@ fn main() -> Result<()> {
 					draw_messages(&state, &room.history, &account.contacts);
 					// Send the message.
 					send_message(account.account.clone(), room.members.clone(), msg);
+					// Save message history.
+					save_account(account).unwrap();
 				} else {
 					print!("{}", c);
 					let mut state = state.write().unwrap();
