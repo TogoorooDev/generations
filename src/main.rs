@@ -106,11 +106,9 @@ fn main() -> Result<()> {
 						Some(room_id) => room_id,
 						None => continue,
 					};
-					// Clear the line.
-					print!("{}{}", clear::CurrentLine, cursor::Goto(1, height));
 					// Make the message content.
 					let msg = MessageContent::Text(state.msg_buf.clone());
-					state.msg_buf.clear();
+					clear_input(&mut state);
 					// Find the room.
 					let mut account = account.write().unwrap();
 					let account: &mut Account = &mut account;
@@ -156,6 +154,26 @@ fn main() -> Result<()> {
 				draw_rooms(&state, &account.rooms);
 				stdout().flush().unwrap();
 				save_account(&account).unwrap();
+			},
+			Key::Ctrl('a') => {
+				let mut account = account.write().unwrap();
+				let mut state = state.write().unwrap();
+				// Parse the address or contact name.
+				let addr = if let Some(c) = account.contacts.iter().find(|c| c.name == state.msg_buf) {
+					c.addr.clone()
+				} else if let Ok(addr) = SufecAddr::try_from(state.msg_buf.as_str()) {
+					addr
+				} else {
+					continue;
+				};
+				// Find current room.
+				let room = account.rooms.iter_mut().find(|r| Some(r.id) == state.room_id);
+				if let Some(r) = room {
+					if r.members.contains(&addr) { continue }
+					r.members.push(addr);
+					save_account(&account).unwrap();
+					clear_input(&mut state);
+				}
 			},
 			Key::Alt(c) => {
 				let account = account.read().unwrap();
@@ -342,4 +360,10 @@ fn sufec_backend<T: FnMut(SufecAddr, u64, Message)>(account: Arc<RwLock<Account>
 	) {
 		eprintln!("error when connecting to homeserver: {}", e)
 	}
+}
+
+fn clear_input(state: &mut State) {
+	state.msg_buf.clear();
+	print!("{}{}", clear::CurrentLine, cursor::Goto(1, state.height));
+	stdout().flush().unwrap();
 }
