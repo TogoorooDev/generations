@@ -99,29 +99,28 @@ fn main() -> Result<()> {
 			}
 		}
 		for event in stdin().keys() {
+			let mut account = account.write().unwrap();
+			let mut state = state.write().unwrap();
 			match event.unwrap() {
 			Key::Esc => {
 				quit_menu();
 			},
 			Key::Char(c) => {
 				if c == '\n' {
-					submit_message(&mut account.write().unwrap(), &mut state.write().unwrap());
+					submit_message(&mut account, &mut state);
 				} else {
 					print!("{}", c);
-					let mut state = state.write().unwrap();
 					state.msg_buf.push(c);
 				}
 				stdout().flush().unwrap();
 			},
-			Key::Up => scroll(&mut account.write().unwrap(), &mut state.write().unwrap(), 1),
-			Key::Down => scroll(&mut account.write().unwrap(), &mut state.write().unwrap(), -1),
-			Key::Backspace => backspace(&mut state.write().unwrap()),
-			Key::Ctrl('n') => create_room(&mut account.write().unwrap(), &mut state.write().unwrap()),
-			Key::Ctrl('a') => add_room_member(&mut account.write().unwrap(), &mut state.write().unwrap()),
-			Key::Ctrl('d') => delete_room(&mut account.write().unwrap(), &mut state.write().unwrap()),
+			Key::Up => scroll(&mut account, &mut state, 1),
+			Key::Down => scroll(&mut account, &mut state, -1),
+			Key::Backspace => backspace(&mut state),
+			Key::Ctrl('n') => create_room(&mut account, &mut state),
+			Key::Ctrl('a') => add_room_member(&mut account, &mut state),
+			Key::Ctrl('d') => delete_room(&mut account, &mut state),
 			Key::Alt(c) => {
-				let account = account.read().unwrap();
-				let mut state = state.write().unwrap();
 				if c >= '0' && c <= '9' {
 					let n = if c == '0' { 9 } else { c as usize - '0' as usize - 1 };
 					let new_room = match account.rooms.get(n) {
