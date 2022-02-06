@@ -117,8 +117,9 @@ fn main() -> Result<()> {
 			Key::Down => scroll(&mut account, &mut state, -1),
 			Key::Backspace => backspace(&mut state),
 			Key::Ctrl('n') => create_room(&mut account, &mut state),
-			Key::Ctrl('a') => add_room_member(&mut account, &mut state),
+			Key::Ctrl('e') => rename(&mut account, &mut state),
 			Key::Ctrl('d') => delete_room(&mut account, &mut state),
+			Key::Ctrl('a') => add_room_member(&mut account, &mut state),
 			Key::Alt(c) => {
 				if c >= '0' && c <= '9' {
 					let n = if c == '0' { 9 } else { c as usize - '0' as usize - 1 };
@@ -413,6 +414,19 @@ fn delete_room(account: &mut Account, state: &mut State) {
 	state.room_id = account.rooms.get(0).map(|r| r.id).unwrap_or_default();
 	draw_rooms(state, &account.rooms);
 	draw_messages(account, state);
+	reset_cursor_pos(state);
+	save_account(account).unwrap();
+}
+
+fn rename(account: &mut Account, state: &mut State) {
+	// Find the room to rename.
+	let room = match account.rooms.iter_mut().find(|r| r.id == state.room_id) {
+		Some(r) => r,
+		None => return,
+	};
+	room.name = state.msg_buf.clone();
+	clear_input(state);
+	draw_rooms(state, &account.rooms);
 	reset_cursor_pos(state);
 	save_account(account).unwrap();
 }
