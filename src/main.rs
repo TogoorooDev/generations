@@ -130,6 +130,7 @@ fn main() -> Result<()> {
 					state.room_id = new_room.id;
 					draw_rooms(&state, &account.rooms);
 					draw_messages(&account, &state);
+					reset_cursor_pos(&state);
 				}
 			}
 			_ => {},
