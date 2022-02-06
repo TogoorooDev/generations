@@ -44,6 +44,16 @@ struct State {
 	width: u16,
 	height: u16,
 }
+impl State {
+	fn new(account: &Account) -> Self {
+		let (width, height) = termion::terminal_size().unwrap();
+		Self {
+			room_id: account.rooms.get(0).map(|r| r.id),
+			msg_buf: String::new(),
+			width, height,
+		}
+	}
+}
 
 fn clear() { println!("{}{}", clear::All, cursor::Goto(1, 1)); }
 
@@ -53,12 +63,7 @@ fn main() -> Result<()> {
 	sodiumoxide::init().expect("sodiumoxie::init failed");
 	// Initialize account and state.
 	let account = Arc::new(RwLock::new(load_account()?));
-	let (width, height) = termion::terminal_size().unwrap();
-	let state = Arc::new(RwLock::new(State{
-			room_id: account.read().unwrap().rooms.get(0).map(|r| r.id),
-			msg_buf: String::new(),
-			width, height,
-	}));
+	let state = Arc::new(RwLock::new(State::new(&account.read().unwrap())));
 	// Start listener.
 	let accountclone = Arc::clone(&account);
 	let stateclone = Arc::clone(&state);
@@ -74,25 +79,18 @@ fn main() -> Result<()> {
 	let mut _stdout = stdout().into_raw_mode().unwrap();
 
 	// Set up the screen.
-	{
-		let account = account.read().unwrap();
-		let state = state.read().unwrap();
-		prep(&state, &account.rooms);
-		if let Some(room_id) = state.room_id {
-			let room = account.rooms.iter().find(|r| r.id == room_id).unwrap();
-			draw_messages(&state, &room.history, &account.contacts);
-		}
-	}
+	prep(&account.read().unwrap(), &state.read().unwrap());
 	
 	loop {
 		let (nwidth, nheight) = termion::terminal_size().unwrap();
-		if (nwidth, nheight) != (width, height){
+		{
 			let mut state = state.write().unwrap();
-			state.width = nwidth;
-			state.height = nheight;
-			prep(&state, &account.read().unwrap().rooms);
+			if (nwidth, nheight) != (state.width, state.height) {
+				state.width = nwidth;
+				state.height = nheight;
+				prep(&account.read().unwrap(), &state);
+			}
 		}
-
 		for event in stdin().keys() {
 			match event.unwrap() {
 			Key::Esc => {
@@ -100,32 +98,7 @@ fn main() -> Result<()> {
 			},
 			Key::Char(c) => {
 				if c == '\n' {
-					let mut state = state.write().unwrap();
-					// They can't send a message if they aren't in a room.
-					let room_id = match state.room_id {
-						Some(room_id) => room_id,
-						None => continue,
-					};
-					// Make the message content.
-					let msg = MessageContent::Text(state.msg_buf.clone());
-					clear_input(&mut state);
-					// Find the room.
-					let mut account = account.write().unwrap();
-					let account: &mut Account = &mut account;
-					let room = account.rooms.iter_mut().find(|r| r.id == room_id).unwrap();
-					// Add it to the history.
-					let history_entry = HistoryEntry{
-						sender: account.account.addr.clone(),
-						timestamp: UNIX_EPOCH.elapsed().unwrap().as_micros() as u64,
-						msg: msg.clone(),
-					};
-					room.history.push(history_entry);
-					// Update screen.
-					draw_messages(&state, &room.history, &account.contacts);
-					// Send the message.
-					send_message(account.account.clone(), room.members.clone(), msg);
-					// Save message history.
-					save_account(account).unwrap();
+					submit_message(&mut account.write().unwrap(), &mut state.write().unwrap());
 				} else {
 					print!("{}", c);
 					let mut state = state.write().unwrap();
@@ -133,48 +106,9 @@ fn main() -> Result<()> {
 				}
 				stdout().flush().unwrap();
 			},
-			Key::Backspace => {
-				let mut state = state.write().unwrap();
-				state.msg_buf.pop();
-				print!("{} {}", cursor::Left(1), cursor::Left(1));
-				stdout().flush().unwrap();
-			},
-			Key::Ctrl('n') => {
-				let mut account = account.write().unwrap();
-				let mut state = state.write().unwrap();
-				let new_room = Room{
-					id: randombytes(2).try_into().unwrap(),
-					name: "New room".to_string(),
-					members: vec![],
-					history: vec![],
-					unseen: 0,
-				};
-				state.room_id = Some(new_room.id);
-				account.rooms.push(new_room);
-				draw_rooms(&state, &account.rooms);
-				stdout().flush().unwrap();
-				save_account(&account).unwrap();
-			},
-			Key::Ctrl('a') => {
-				let mut account = account.write().unwrap();
-				let mut state = state.write().unwrap();
-				// Parse the address or contact name.
-				let addr = if let Some(c) = account.contacts.iter().find(|c| c.name == state.msg_buf) {
-					c.addr.clone()
-				} else if let Ok(addr) = SufecAddr::try_from(state.msg_buf.as_str()) {
-					addr
-				} else {
-					continue;
-				};
-				// Find current room.
-				let room = account.rooms.iter_mut().find(|r| Some(r.id) == state.room_id);
-				if let Some(r) = room {
-					if r.members.contains(&addr) { continue }
-					r.members.push(addr);
-					save_account(&account).unwrap();
-					clear_input(&mut state);
-				}
-			},
+			Key::Backspace => backspace(&mut state.write().unwrap()),
+			Key::Ctrl('n') => create_room(&mut account.write().unwrap(), &mut state.write().unwrap()),
+			Key::Ctrl('a') => add_room_member(&mut account.write().unwrap(), &mut state.write().unwrap()),
 			Key::Alt(c) => {
 				let account = account.read().unwrap();
 				let mut state = state.write().unwrap();
@@ -195,11 +129,15 @@ fn main() -> Result<()> {
 	}
 }
 
-fn prep(state: &State, rooms: &[Room]){
+fn prep(account: &Account, state: &State) {
 	clear();
 	draw_bottom(state.height, state.width);
-	draw_rooms(state, rooms);
+	draw_rooms(state, &account.rooms);
 	stdout().flush().unwrap();
+	if let Some(room_id) = state.room_id {
+		let room = account.rooms.iter().find(|r| r.id == room_id).unwrap();
+		draw_messages(state, &room.history, &account.contacts);
+	}
 }
 
 fn quit_menu(){
@@ -286,10 +224,36 @@ fn write_ron<T: Serialize>(t: &T, path: &str) -> Result<()> {
 	Ok(())
 }
 
+fn submit_message(account: &mut Account, state: &mut State) {
+	// They can't send a message if they aren't in a room.
+	let room_id = match state.room_id {
+		Some(room_id) => room_id,
+		None => return,
+	};
+	// Make the message content.
+	let msg = MessageContent::Text(state.msg_buf.clone());
+	clear_input(state);
+	// Find the room.
+	let room = account.rooms.iter_mut().find(|r| r.id == room_id).unwrap();
+	// Add it to the history.
+	let history_entry = HistoryEntry{
+		sender: account.account.addr.clone(),
+		timestamp: UNIX_EPOCH.elapsed().unwrap().as_micros() as u64,
+		msg: msg.clone(),
+	};
+	room.history.push(history_entry);
+	// Update screen.
+	draw_messages(state, &room.history, &account.contacts);
+	// Send the message.
+	send_message(account.account.clone(), room.members.clone(), msg);
+	// Save message history.
+	save_account(account).unwrap();
+}
+
 fn send_message(account: SufecAccount, recipients: Vec<SufecAddr>, content: MessageContent) {
 	for recipient in recipients.iter() {
 		let recipient = recipient.clone();
-		let other_recipients = recipients.iter().filter(|r| *r != &recipient).map(|r| r.clone()).collect();
+		let other_recipients = recipients.iter().filter(|r| *r != &recipient).cloned().collect();
 		let message = Message{other_recipients, content: content.clone()};
 		let account = account.clone();
 		std::thread::spawn(move || {
@@ -366,4 +330,44 @@ fn clear_input(state: &mut State) {
 	state.msg_buf.clear();
 	print!("{}{}", clear::CurrentLine, cursor::Goto(1, state.height));
 	stdout().flush().unwrap();
+}
+
+fn backspace(state: &mut State) {
+	state.msg_buf.pop();
+	print!("{} {}", cursor::Left(1), cursor::Left(1));
+	stdout().flush().unwrap();
+}
+
+fn create_room(account: &mut Account, state: &mut State) {
+	let new_room = Room{
+		id: randombytes(2).try_into().unwrap(),
+		name: "New room".to_string(),
+		members: vec![],
+		history: vec![],
+		unseen: 0,
+	};
+	state.room_id = Some(new_room.id);
+	account.rooms.push(new_room);
+	draw_rooms(state, &account.rooms);
+	stdout().flush().unwrap();
+	save_account(account).unwrap();
+}
+
+fn add_room_member(account: &mut Account, state: &mut State) {
+	// Parse the address or contact name.
+	let addr = if let Some(c) = account.contacts.iter().find(|c| c.name == state.msg_buf) {
+		c.addr.clone()
+	} else if let Ok(addr) = SufecAddr::try_from(state.msg_buf.as_str()) {
+		addr
+	} else {
+		return
+	};
+	// Find current room.
+	let room = account.rooms.iter_mut().find(|r| Some(r.id) == state.room_id);
+	if let Some(r) = room {
+		if r.members.contains(&addr) { return }
+		r.members.push(addr);
+		save_account(account).unwrap();
+		clear_input(state);
+	}
 }
