@@ -204,6 +204,7 @@ fn draw_messages(state: &State, messages: &[HistoryEntry], contacts: &[Contact])
 			index += message_width as usize;
 		}
 		y -= 1;
+		if y == 0 { break }
 	}
 	// Reset the cursor position.
 	print!("{}", cursor::Goto(1+state.msg_buf.len() as u16, state.height));
