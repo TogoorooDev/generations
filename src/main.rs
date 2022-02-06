@@ -120,7 +120,7 @@ fn main() -> Result<()> {
 					};
 					state.room_id = Some(new_room.id);
 					draw_rooms(&state, &account.rooms);
-					draw_messages(&state, &new_room.history, &account.contacts);
+					draw_messages(&account, &state);
 				}
 			}
 			_ => {},
@@ -134,10 +134,7 @@ fn prep(account: &Account, state: &State) {
 	draw_bottom(state.height, state.width);
 	draw_rooms(state, &account.rooms);
 	stdout().flush().unwrap();
-	if let Some(room_id) = state.room_id {
-		let room = account.rooms.iter().find(|r| r.id == room_id).unwrap();
-		draw_messages(state, &room.history, &account.contacts);
-	}
+	draw_messages(account, state);
 }
 
 fn quit_menu(){
@@ -172,23 +169,32 @@ fn draw_bottom(height: u16, width: u16) {
 	print!("{}{}", cursor::Goto(1, height-1), "-".repeat(width as usize));
 }
 
-fn draw_messages(state: &State, messages: &[HistoryEntry], contacts: &[Contact]) {
+fn draw_messages(account: &Account, state: &State) {
 	let sep = state.width / 3;
 	let message_width = state.width - sep;
 	// Clear any previous messages.
 	for y in 1..state.height - 1 {
 		print!("{}{}", cursor::Goto(sep+1, y), " ".repeat((state.width - sep) as usize));
 	}
+	// get the current room's history
+	let history = match account.rooms.iter().find(|r| Some(r.id) == state.room_id) {
+		Some(r) => &r.history,
+		None => return,
+	};
 	// we don't have automatic GUI-like scrolling, therefore we start from the end
 	let mut y = state.height - 2;
-	for message in messages.iter().rev() {
+	for message in history.iter().rev() {
 		let text = match &message.msg {
 			MessageContent::Text(s) => s,
 			_ => unimplemented!(),
 		};
-		let display_name = match contacts.iter().find(|c| c.addr.id == message.sender.id) {
-			Some(c) => c.name.clone(),
-			None => String::from(message.sender.clone()),
+		let display_name = if message.sender.id == account.account.addr.id {
+			"me".to_string()
+		} else {
+			match account.contacts.iter().find(|c| c.addr.id == message.sender.id) {
+				Some(c) => c.name.clone(),
+				None => message.sender.clone().to_string(),
+			}
 		};
 		let text = format!("{}: {}", display_name, text);
 		let chars: Vec<char> = text.chars().collect();
@@ -243,10 +249,10 @@ fn submit_message(account: &mut Account, state: &mut State) {
 		msg: msg.clone(),
 	};
 	room.history.push(history_entry);
-	// Update screen.
-	draw_messages(state, &room.history, &account.contacts);
 	// Send the message.
 	send_message(account.account.clone(), room.members.clone(), msg);
+	// Update screen.
+	draw_messages(account, state);
 	// Save message history.
 	save_account(account).unwrap();
 }
@@ -280,7 +286,7 @@ fn message_callback(account: &mut Account, state: &State, from: SufecAddr, times
 	match room {
 		Some(r) => {
 			r.history.push(history_entry);
-			draw_messages(state, &r.history, &account.contacts);
+			draw_messages(account, state);
 		},
 		None => {
 			let new_room = Room{
@@ -350,6 +356,7 @@ fn create_room(account: &mut Account, state: &mut State) {
 	state.room_id = Some(new_room.id);
 	account.rooms.push(new_room);
 	draw_rooms(state, &account.rooms);
+	draw_messages(account, state);
 	stdout().flush().unwrap();
 	save_account(account).unwrap();
 }
