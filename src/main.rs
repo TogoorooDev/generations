@@ -87,7 +87,6 @@ fn main() -> Result<()> {
 
 	// Set up the screen.
 	prep(&account.read().unwrap(), &state.read().unwrap());
-	
 	loop {
 		let (nwidth, nheight) = termion::terminal_size().unwrap();
 		{
@@ -142,11 +141,11 @@ fn prep(account: &Account, state: &State) {
 	clear();
 	draw_bottom(state.height, state.width);
 	draw_rooms(state, &account.rooms);
-	stdout().flush().unwrap();
 	draw_messages(account, state);
+	reset_cursor_pos(state);
 }
 
-fn quit_menu(){
+fn quit_menu() {
 	clear();
 	std::process::exit(0);
 }
@@ -226,7 +225,9 @@ fn draw_messages(account: &Account, state: &State) {
 		y -= 1;
 		if y == 0 { break }
 	}
-	// Reset the cursor position.
+}
+
+fn reset_cursor_pos(state: &State) {
 	print!("{}", cursor::Goto(1+state.msg_buf.len() as u16, state.height));
 	stdout().flush().unwrap();
 }
@@ -265,6 +266,7 @@ fn submit_message(account: &mut Account, state: &mut State) {
 	send_message(account.account.clone(), room.members.clone(), msg);
 	// Update screen.
 	draw_messages(account, state);
+	reset_cursor_pos(state);
 	// Save message history.
 	save_account(account).unwrap();
 }
@@ -313,7 +315,8 @@ fn message_callback(account: &mut Account, state: &mut State, from: SufecAddr, t
 			draw_rooms(state, &account.rooms);
 		}
 	}
-	save_account(account).expect("couldn't save account");
+	reset_cursor_pos(state);
+	save_account(account).unwrap();
 }
 
 fn sufec_backend<T: FnMut(SufecAddr, u64, Message)>(account: Arc<RwLock<Account>>, receive_msg: T) {
@@ -365,6 +368,7 @@ fn scroll(account: &mut Account, state: &mut State, amount: i16) {
 	};
 	*pos = std::cmp::max(*pos + amount, 0);
 	draw_messages(account, state);
+	reset_cursor_pos(state);
 }
 
 fn create_room(account: &mut Account, state: &mut State) {
@@ -380,7 +384,7 @@ fn create_room(account: &mut Account, state: &mut State) {
 	account.rooms.push(new_room);
 	draw_rooms(state, &account.rooms);
 	draw_messages(account, state);
-	stdout().flush().unwrap();
+	reset_cursor_pos(state);
 	save_account(account).unwrap();
 }
 
@@ -409,5 +413,6 @@ fn delete_room(account: &mut Account, state: &mut State) {
 	state.room_id = account.rooms.get(0).map(|r| r.id).unwrap_or_default();
 	draw_rooms(state, &account.rooms);
 	draw_messages(account, state);
+	reset_cursor_pos(state);
 	save_account(account).unwrap();
 }
