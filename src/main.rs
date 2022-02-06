@@ -41,7 +41,7 @@ struct HistoryEntry {
 type RoomId = [u8; 2];
 
 struct State {
-	room_id: Option<RoomId>,
+	room_id: RoomId,
 	scroll: HashMap<RoomId, i16>,
 	msg_buf: String,
 	width: u16,
@@ -55,7 +55,7 @@ impl State {
 			scroll.insert(room.id, 0);
 		}
 		Self {
-			room_id: account.rooms.get(0).map(|r| r.id),
+			room_id: account.rooms.get(0).map(|r| r.id).unwrap_or([0, 0]),
 			msg_buf: String::new(),
 			width, height, scroll,
 		}
@@ -127,7 +127,7 @@ fn main() -> Result<()> {
 						Some(r) => r,
 						None => continue,
 					};
-					state.room_id = Some(new_room.id);
+					state.room_id = new_room.id;
 					draw_rooms(&state, &account.rooms);
 					draw_messages(&account, &state);
 				}
@@ -162,7 +162,7 @@ fn draw_rooms(state: &State, rooms: &[Room]) {
 		// go to position to start room name
 		print!("{}|", cursor::Goto(1, y));
 		// If it's the current room, highlight it.
-		if Some(room.id) == state.room_id {
+		if room.id == state.room_id {
 			print!("{}", style::Invert)
 		}
 		print!("{}{}{}", room.name, " ".repeat(sep as usize - 2 - room.name.len()), style::NoInvert);
@@ -186,12 +186,11 @@ fn draw_messages(account: &Account, state: &State) {
 		print!("{}{}", cursor::Goto(sep+1, y), " ".repeat((state.width - sep) as usize));
 	}
 	// get the current room's history
-	let room_id = state.room_id.unwrap();
-	let history = match account.rooms.iter().find(|r| r.id == room_id) {
+	let history = match account.rooms.iter().find(|r| r.id == state.room_id) {
 		Some(r) => &r.history,
 		None => return,
 	};
-	let scroll = state.scroll[&room_id];
+	let scroll = state.scroll[&state.room_id];
 	// we don't have automatic GUI-like scrolling, therefore we start from the end
 	let mut y = state.height - 2;
 	for message in history.iter().rev().skip(scroll as usize) {
@@ -243,16 +242,14 @@ fn write_ron<T: Serialize>(t: &T, path: &str) -> Result<()> {
 }
 
 fn submit_message(account: &mut Account, state: &mut State) {
-	// They can't send a message if they aren't in a room.
-	let room_id = match state.room_id {
-		Some(room_id) => room_id,
+	// Find the room.
+	let room = match account.rooms.iter_mut().find(|r| r.id == state.room_id) {
+		Some(r) => r,
 		None => return,
 	};
 	// Make the message content.
 	let msg = MessageContent::Text(state.msg_buf.clone());
 	clear_input(state);
-	// Find the room.
-	let room = account.rooms.iter_mut().find(|r| r.id == room_id).unwrap();
 	// Add it to the history.
 	let history_entry = HistoryEntry{
 		sender: account.account.addr.clone(),
@@ -358,11 +355,10 @@ fn backspace(state: &mut State) {
 }
 
 fn scroll(account: &mut Account, state: &mut State, amount: i16) {
-	let room_id = match state.room_id {
-		Some(id) => id,
+	let pos = match state.scroll.get_mut(&state.room_id) {
+		Some(pos) => pos,
 		None => return,
 	};
-	let pos = state.scroll.get_mut(&room_id).unwrap();
 	*pos = std::cmp::max(*pos + amount, 0);
 	draw_messages(account, state);
 }
@@ -376,7 +372,7 @@ fn create_room(account: &mut Account, state: &mut State) {
 		unseen: 0,
 	};
 	state.scroll.insert(new_room.id, 0);
-	state.room_id = Some(new_room.id);
+	state.room_id = new_room.id;
 	account.rooms.push(new_room);
 	draw_rooms(state, &account.rooms);
 	draw_messages(account, state);
@@ -394,7 +390,7 @@ fn add_room_member(account: &mut Account, state: &mut State) {
 		return
 	};
 	// Find current room.
-	let room = account.rooms.iter_mut().find(|r| Some(r.id) == state.room_id);
+	let room = account.rooms.iter_mut().find(|r| r.id == state.room_id);
 	if let Some(r) = room {
 		if r.members.contains(&addr) { return }
 		r.members.push(addr);
