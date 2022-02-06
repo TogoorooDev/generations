@@ -7,6 +7,7 @@ use sodiumoxide::crypto::box_::{self, PublicKey, SecretKey};
 use sodiumoxide::randombytes::randombytes;
 use std::io::{stdin, stdout, Write};
 use std::fs::File;
+use std::collections::HashMap;
 use std::sync::{mpsc, Arc, RwLock};
 use std::time::UNIX_EPOCH;
 
@@ -25,7 +26,7 @@ pub struct Account {
 }
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct Room {
-	id: [u8; 2],
+	id: RoomId,
 	name: String,
 	members: Vec<SufecAddr>,
 	history: Vec<HistoryEntry>,
@@ -37,9 +38,11 @@ struct HistoryEntry {
 	timestamp: u64,
 	msg: MessageContent,
 }
+type RoomId = [u8; 2];
 
 struct State {
-	room_id: Option<[u8; 2]>,
+	room_id: Option<RoomId>,
+	scroll: HashMap<RoomId, i16>,
 	msg_buf: String,
 	width: u16,
 	height: u16,
@@ -47,10 +50,14 @@ struct State {
 impl State {
 	fn new(account: &Account) -> Self {
 		let (width, height) = termion::terminal_size().unwrap();
+		let mut scroll = HashMap::new();
+		for room in &account.rooms {
+			scroll.insert(room.id, 0);
+		}
 		Self {
 			room_id: account.rooms.get(0).map(|r| r.id),
 			msg_buf: String::new(),
-			width, height,
+			width, height, scroll,
 		}
 	}
 }
@@ -69,8 +76,8 @@ fn main() -> Result<()> {
 	let stateclone = Arc::clone(&state);
 	let receive_msg = move |from, timestamp, msg| {
 		let mut account = accountclone.write().unwrap();
-		let state = stateclone.read().unwrap();
-		message_callback(&mut account, &state, from, timestamp, msg);
+		let mut state = stateclone.write().unwrap();
+		message_callback(&mut account, &mut state, from, timestamp, msg);
 		save_account(&account).unwrap();
 	};
 	let accountclone = Arc::clone(&account);
@@ -106,6 +113,8 @@ fn main() -> Result<()> {
 				}
 				stdout().flush().unwrap();
 			},
+			Key::Up => scroll(&mut account.write().unwrap(), &mut state.write().unwrap(), 1),
+			Key::Down => scroll(&mut account.write().unwrap(), &mut state.write().unwrap(), -1),
 			Key::Backspace => backspace(&mut state.write().unwrap()),
 			Key::Ctrl('n') => create_room(&mut account.write().unwrap(), &mut state.write().unwrap()),
 			Key::Ctrl('a') => add_room_member(&mut account.write().unwrap(), &mut state.write().unwrap()),
@@ -177,13 +186,15 @@ fn draw_messages(account: &Account, state: &State) {
 		print!("{}{}", cursor::Goto(sep+1, y), " ".repeat((state.width - sep) as usize));
 	}
 	// get the current room's history
-	let history = match account.rooms.iter().find(|r| Some(r.id) == state.room_id) {
+	let room_id = state.room_id.unwrap();
+	let history = match account.rooms.iter().find(|r| r.id == room_id) {
 		Some(r) => &r.history,
 		None => return,
 	};
+	let scroll = state.scroll[&room_id];
 	// we don't have automatic GUI-like scrolling, therefore we start from the end
 	let mut y = state.height - 2;
-	for message in history.iter().rev() {
+	for message in history.iter().rev().skip(scroll as usize) {
 		let text = match &message.msg {
 			MessageContent::Text(s) => s,
 			_ => unimplemented!(),
@@ -271,7 +282,7 @@ fn send_message(account: SufecAccount, recipients: Vec<SufecAddr>, content: Mess
 	}
 }
 
-fn message_callback(account: &mut Account, state: &State, from: SufecAddr, timestamp: u64, msg: Message) {
+fn message_callback(account: &mut Account, state: &mut State, from: SufecAddr, timestamp: u64, msg: Message) {
 	// Build a sorted list of users to match to one of our rooms.
 	let mut recipients = msg.other_recipients.clone();
 	recipients.push(from.clone());
@@ -296,6 +307,7 @@ fn message_callback(account: &mut Account, state: &State, from: SufecAddr, times
 				history: vec![history_entry],
 				unseen: 1,
 			};
+			state.scroll.insert(new_room.id, 0);
 			account.rooms.push(new_room);
 			draw_rooms(state, &account.rooms);
 		}
@@ -345,6 +357,16 @@ fn backspace(state: &mut State) {
 	stdout().flush().unwrap();
 }
 
+fn scroll(account: &mut Account, state: &mut State, amount: i16) {
+	let room_id = match state.room_id {
+		Some(id) => id,
+		None => return,
+	};
+	let pos = state.scroll.get_mut(&room_id).unwrap();
+	*pos = std::cmp::max(*pos + amount, 0);
+	draw_messages(account, state);
+}
+
 fn create_room(account: &mut Account, state: &mut State) {
 	let new_room = Room{
 		id: randombytes(2).try_into().unwrap(),
@@ -353,6 +375,7 @@ fn create_room(account: &mut Account, state: &mut State) {
 		history: vec![],
 		unseen: 0,
 	};
+	state.scroll.insert(new_room.id, 0);
 	state.room_id = Some(new_room.id);
 	account.rooms.push(new_room);
 	draw_rooms(state, &account.rooms);
