@@ -55,7 +55,7 @@ impl State {
 			scroll.insert(room.id, 0);
 		}
 		Self {
-			room_id: account.rooms.get(0).map(|r| r.id).unwrap_or([0, 0]),
+			room_id: account.rooms.get(0).map(|r| r.id).unwrap_or_default(),
 			msg_buf: String::new(),
 			width, height, scroll,
 		}
@@ -118,6 +118,7 @@ fn main() -> Result<()> {
 			Key::Backspace => backspace(&mut state.write().unwrap()),
 			Key::Ctrl('n') => create_room(&mut account.write().unwrap(), &mut state.write().unwrap()),
 			Key::Ctrl('a') => add_room_member(&mut account.write().unwrap(), &mut state.write().unwrap()),
+			Key::Ctrl('d') => delete_room(&mut account.write().unwrap(), &mut state.write().unwrap()),
 			Key::Alt(c) => {
 				let account = account.read().unwrap();
 				let mut state = state.write().unwrap();
@@ -153,6 +154,10 @@ fn quit_menu(){
 
 fn draw_rooms(state: &State, rooms: &[Room]) {
 	let sep = state.width / 3;
+	// Clear any previous room list.
+	for y in 1..state.height - 1 {
+		print!("{}{}", cursor::Goto(1, y), " ".repeat((sep - 2) as usize));
+	}
 	// draw separator bar
 	for y in 1..state.height-1 {
 		print!("{}|", cursor::Goto(sep, y));
@@ -397,4 +402,13 @@ fn add_room_member(account: &mut Account, state: &mut State) {
 		save_account(account).unwrap();
 		clear_input(state);
 	}
+}
+
+fn delete_room(account: &mut Account, state: &mut State) {
+	account.rooms.retain(|r| r.id != state.room_id);
+	// Set the current room to another one.
+	state.room_id = account.rooms.get(0).map(|r| r.id).unwrap_or_default();
+	draw_rooms(state, &account.rooms);
+	draw_messages(account, state);
+	save_account(account).unwrap();
 }
