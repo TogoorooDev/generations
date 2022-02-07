@@ -138,6 +138,9 @@ pub fn remove_member(account: &mut Account, state: &mut State) {
 	let room = account.rooms.iter_mut().find(|r| r.id == state.room_id);
 	if let Some(r) = room {
 		r.members.remove(state.selected_index);
+		if state.selected_index >= r.members.len() && state.selected_index > 0 {
+			state.selected_index -= 1
+		}
 		clear_input(state);
 		draw_sidebar(account, state);
 		reset_cursor_pos(state);
@@ -203,6 +206,9 @@ pub fn rename_contact(account: &mut Account, state: &mut State) {
 
 pub fn remove_contact(account: &mut Account, state: &mut State) {
 	account.contacts.remove(state.selected_index);
+	if state.selected_index >= account.contacts.len() && state.selected_index > 0 {
+		state.selected_index -= 1
+	}
 	clear_input(state);
 	draw_sidebar(account, state);
 	reset_cursor_pos(state);
