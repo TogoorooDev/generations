@@ -139,6 +139,40 @@ pub fn add_contact(account: &mut Account, state: &mut State) {
 	save_account(account).unwrap();
 }
 
+pub fn rename_member(account: &mut Account, state: &mut State) {
+	let room = match account.rooms.iter_mut().find(|r| r.id == state.room_id) {
+		Some(r) => r,
+		None => return,
+	};
+	let addr = match room.members.get(state.selected_index) {
+		Some(c) => c.clone(),
+		None => return,
+	};
+	// If we already have this address as a contact, update the name.
+	if let Some(existing) = account.contacts.iter_mut().find(|c| c.addr == addr) {
+		existing.name = state.msg_buf.clone()
+	// Otherwise create a new contact.
+	} else {
+		account.contacts.push(Contact{addr, name: state.msg_buf.clone()})
+	}
+	clear_input(state);
+	draw_sidebar(account, state);
+	reset_cursor_pos(state);
+	save_account(account).unwrap();
+}
+
+pub fn rename_contact(account: &mut Account, state: &mut State) {
+	let contact = match account.contacts.get_mut(state.selected_index) {
+		Some(c) => c,
+		None => return,
+	};
+	contact.name = state.msg_buf.clone();
+	clear_input(state);
+	draw_sidebar(account, state);
+	reset_cursor_pos(state);
+	save_account(account).unwrap();
+}
+
 pub fn remove_contact(account: &mut Account, state: &mut State) {
 	account.contacts.remove(state.selected_index);
 	clear_input(state);

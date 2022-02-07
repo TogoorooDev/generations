@@ -57,7 +57,14 @@ fn main() -> Result<()> {
 			Key::Down => scroll(&mut account, &mut state, -1),
 			Key::Backspace => backspace(&mut state),
 			Key::Ctrl('n') => add_room(&mut account, &mut state),
-			Key::Ctrl('e') => rename_room(&mut account, &mut state),
+			Key::Ctrl('e') => {
+				if state.msg_buf.is_empty() { continue }
+				match state.mode {
+					Mode::Rooms => rename_room(&mut account, &mut state),
+					Mode::Members => rename_member(&mut account, &mut state),
+					Mode::Contacts => rename_contact(&mut account, &mut state),
+				}
+			}
 			Key::Ctrl('d') => {
 				match state.mode {
 					Mode::Rooms => remove_room(&mut account, &mut state),
