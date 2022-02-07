@@ -18,3 +18,13 @@ pub fn display_addr_or_name(account: &Account, addr: &SufecAddr) -> String {
 	}
 	addr.to_string()
 }
+
+#[macro_export]
+macro_rules! require_some {
+    ($option:expr) => {
+		match $option {
+			Some(v) => v,
+			None => return,
+		}
+    };
+}
