@@ -50,6 +50,34 @@ pub fn scroll(account: &mut Account, state: &mut State, amount: i16) {
 	reset_cursor_pos(state);
 }
 
+pub fn sidebar_select_relative(account: &Account, state: &mut State, change: i8) {
+	match state.mode {
+		Mode::Rooms => {
+			let current = match account.rooms.iter().position(|r| r.id == state.room_id) {
+				Some(r) => r,
+				None => return,
+			};
+			let intermediate = current as isize + change as isize;
+			let new = min(max(intermediate, 0) as usize, account.rooms.len() - 1);
+			state.room_id = account.rooms[new].id;
+		},
+		Mode::Members => {
+			let room = match account.rooms.iter().find(|r| r.id == state.room_id) {
+				Some(r) => r,
+				None => return,
+			};
+			let intermediate = state.selected_index as isize + change as isize;
+			state.selected_index = min(max(intermediate, 0) as usize, room.members.len() - 1);
+		},
+		Mode::Contacts => {
+			let intermediate = state.selected_index as isize + change as isize;
+			state.selected_index = min(max(intermediate, 0) as usize, account.contacts.len() - 1);
+		},
+	}
+	draw_sidebar(account, state);
+	reset_cursor_pos(state);
+}
+
 pub fn add_room(account: &mut Account, state: &mut State) {
 	let new_room = Room{
 		id: randombytes(2).try_into().unwrap(),
