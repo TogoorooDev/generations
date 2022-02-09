@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use crate::util::*;
+use crate::require_some;
 
 pub fn clear() { println!("{}{}", clear::All, cursor::Goto(1, 1)); }
 
@@ -67,17 +68,15 @@ pub fn draw_rooms(state: &State, rooms: &[Room]) {
 
 pub fn draw_members(account: &Account, state: &State) {
 	// Find the room.
-	let room = match account.rooms.iter().find(|r| r.id == state.room_id) {
-		Some(r) => r,
-		None => return,
-	};
+	let room = require_some!(account.rooms.iter().find(|r| r.id == state.room_id));
 	let sep = state.width / 3;
 	let mut y = 1;
 	for (i, member) in room.members.iter().enumerate() {
 		if i == state.selected_index {
 			print!("{}", style::Invert);
 		}
-		let text = display_addr_or_name(account, member);
+		let mut text = display_addr_or_name(account, member);
+		text.truncate(sep as usize - 1);
 		let padding = " ".repeat(sep as usize - 1 - text.len());
 		print!("{}{}{}{}", cursor::Goto(1, y), text, padding, style::NoInvert);
 		y += 1;
@@ -105,10 +104,7 @@ pub fn draw_messages(account: &Account, state: &State) {
 		print!("{}{}", cursor::Goto(sep+1, y), " ".repeat((state.width - sep) as usize));
 	}
 	// get the current room's history
-	let history = match account.rooms.iter().find(|r| r.id == state.room_id) {
-		Some(r) => &r.history,
-		None => return,
-	};
+	let history = &require_some!(account.rooms.iter().find(|r| r.id == state.room_id)).history;
 	let scroll = state.scroll[&state.room_id];
 	// we don't have automatic GUI-like scrolling, therefore we start from the end
 	let mut y = state.height - 2;

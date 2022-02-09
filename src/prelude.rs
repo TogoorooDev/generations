@@ -1,12 +1,13 @@
 pub use anyhow::{Context,Result};
 pub use termion::{cursor, clear, style, input::TermRead, raw::IntoRawMode};
-pub use termion::event::Key;
+pub use termion::event::{Event, Key};
 pub use libsufec::{Account as SufecAccount, Message, MessageContent, SufecAddr};
 pub use serde::{Deserialize, Serialize};
 pub use sodiumoxide::crypto::box_::{self, PublicKey, SecretKey};
 pub use sodiumoxide::randombytes::randombytes;
 pub use std::io::{stdin, stdout, Write};
 pub use std::fs::File;
+pub use std::cmp::{min, max};
 pub use std::collections::HashMap;
 pub use std::sync::{mpsc, Arc, RwLock};
 pub use std::time::UNIX_EPOCH;

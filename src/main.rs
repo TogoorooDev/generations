@@ -8,6 +8,9 @@ mod commands;
 use crate::commands::*;
 mod util;
 
+const UP_SEQUENCE: &[u8] = &[27, 91, 49, 59, 53, 65];
+const DOWN_SEQUENCE: &[u8] = &[27, 91, 49, 59, 53, 66];
+
 fn main() -> Result<()> {
 	sodiumoxide::init().expect("sodiumoxie::init failed");
 	// Initialize account and state.
@@ -39,52 +42,10 @@ fn main() -> Result<()> {
 				draw_ui(&account.read().unwrap(), &state);
 			}
 		}
-		for event in stdin().keys() {
+		for event in stdin().events() {
 			let mut account = account.write().unwrap();
 			let mut state = state.write().unwrap();
-			match event.unwrap() {
-			Key::Esc => quit(),
-			Key::Char(c) => {
-				if c == '\n' {
-					submit_message(&mut account, &mut state);
-				} else {
-					print!("{}", c);
-					state.msg_buf.push(c);
-				}
-				stdout().flush().unwrap();
-			},
-			Key::Up => scroll(&mut account, &mut state, 1),
-			Key::Down => scroll(&mut account, &mut state, -1),
-			Key::Backspace => backspace(&mut state),
-			Key::Ctrl('n') => add_room(&mut account, &mut state),
-			Key::Ctrl('e') => rename_room(&mut account, &mut state),
-			Key::Ctrl('d') => {
-				match state.mode {
-					Mode::Rooms => remove_room(&mut account, &mut state),
-					Mode::Members => remove_member(&mut account, &mut state),
-					Mode::Contacts => remove_contact(&mut account, &mut state),
-				};
-			}
-			Key::Ctrl('a') => add_member(&mut account, &mut state),
-			Key::Ctrl('p') => add_contact(&mut account, &mut state),
-			Key::Ctrl('r') => show_rooms(&mut account, &mut state),
-			Key::Ctrl('u') => show_members(&mut account, &mut state),
-			Key::Ctrl('c') => show_contacts(&mut account, &mut state),
-			Key::Alt(c) => {
-				if c >= '0' && c <= '9' {
-					let n = if c == '0' { 9 } else { c as usize - '0' as usize - 1 };
-					let new_room = match account.rooms.get(n) {
-						Some(r) => r,
-						None => continue,
-					};
-					state.room_id = new_room.id;
-					draw_rooms(&state, &account.rooms);
-					draw_messages(&account, &state);
-					reset_cursor_pos(&state);
-				}
-			}
-			_ => {},
-			}
+			handle_input(event.unwrap(), &mut account, &mut state);
 		}
 	}
 }
@@ -92,4 +53,64 @@ fn main() -> Result<()> {
 fn quit() {
 	clear();
 	std::process::exit(0);
+}
+
+fn handle_input(event: Event, account: &mut Account, state: &mut State) {
+	match event {
+		Event::Key(Key::Esc) => quit(),
+		Event::Key(Key::Char(c)) => {
+			if c == '\n' {
+				submit_message(account, state);
+			} else {
+				print!("{}", c);
+				state.msg_buf.push(c);
+			}
+			stdout().flush().unwrap();
+		},
+		Event::Key(Key::Up) => scroll(account, state, 1),
+		Event::Key(Key::Down) => scroll(account, state, -1),
+		Event::Key(Key::Backspace) => backspace(state),
+		Event::Key(Key::Ctrl('n')) => add_room(account, state),
+		Event::Key(Key::Ctrl('e')) => {
+			if state.msg_buf.is_empty() { return }
+			match state.mode {
+				Mode::Rooms => rename_room(account, state),
+				Mode::Members => rename_member(account, state),
+				Mode::Contacts => rename_contact(account, state),
+			}
+		}
+		Event::Key(Key::Ctrl('d')) => {
+			match state.mode {
+				Mode::Rooms => remove_room(account, state),
+				Mode::Members => remove_member(account, state),
+				Mode::Contacts => remove_contact(account, state),
+			};
+		}
+		Event::Key(Key::Ctrl('a')) => add_member(account, state),
+		Event::Key(Key::Ctrl('p')) => add_contact(account, state),
+		Event::Key(Key::Ctrl('r')) => show_rooms(account, state),
+		Event::Key(Key::Ctrl('u')) => show_members(account, state),
+		Event::Key(Key::Ctrl('c')) => show_contacts(account, state),
+		Event::Key(Key::Alt(c)) => {
+			if c >= '0' && c <= '9' {
+				let n = if c == '0' { 9 } else { c as usize - '0' as usize - 1 };
+				let new_room = match account.rooms.get(n) {
+					Some(r) => r,
+					None => return,
+				};
+				state.room_id = new_room.id;
+				draw_rooms(state, &account.rooms);
+				draw_messages(account, state);
+				reset_cursor_pos(state);
+			}
+		}
+		Event::Unsupported(seq) => {
+			match seq.as_slice() {
+				DOWN_SEQUENCE => sidebar_select_relative(account, state, 1),
+				UP_SEQUENCE => sidebar_select_relative(account, state, -1),
+				_ => {},
+			}
+		}
+		_ => {},
+	}
 }
